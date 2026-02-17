@@ -1,0 +1,35 @@
+# Output files
+output/
+uploads/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ML model weights (too large for git)
+manga-colorization-v2/
+ml-depth-pro/
+checkpoints/
+*.onnx
+*.pt
+*.pth
+*.bin
+
+# Node
+reader/node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Env
+.env

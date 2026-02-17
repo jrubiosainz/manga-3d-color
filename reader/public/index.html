@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manga 3D Comic Reader</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0a0a0a;
+  color: #e0e0e0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  overflow: hidden;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- Toolbar ---- */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 16px;
+  background: #1a1a1a;
+  border-bottom: 1px solid #333;
+  z-index: 10;
+  flex-wrap: wrap;
+  min-height: 44px;
+}
+.toolbar h1 { font-size: 15px; font-weight: 600; color: #fff; white-space: nowrap; }
+.toolbar label {
+  font-size: 11px; color: #aaa;
+  display: flex; align-items: center; gap: 5px; white-space: nowrap;
+}
+.toolbar input[type="range"] { width: 80px; accent-color: #7c5cff; }
+.toolbar select, .toolbar button {
+  font-size: 11px; padding: 4px 10px;
+  background: #2a2a2a; color: #ddd;
+  border: 1px solid #444; border-radius: 4px; cursor: pointer;
+}
+.toolbar button:hover { background: #3a3a3a; }
+.toolbar .sep { width: 1px; height: 22px; background: #333; }
+
+/* ---- Canvas area ---- */
+.viewer { flex: 1; position: relative; overflow: hidden; }
+canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+
+/* ---- Drop zone overlay ---- */
+.drop-overlay {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 12px; z-index: 5;
+  background: #0a0a0a;
+  transition: opacity 0.3s;
+}
+.drop-overlay.hidden { opacity: 0; pointer-events: none; }
+.drop-overlay .icon { font-size: 52px; opacity: 0.4; }
+.drop-overlay p { font-size: 13px; color: #777; }
+.drop-overlay .btn-load {
+  padding: 10px 28px; background: #7c5cff; color: #fff;
+  border: none; border-radius: 6px; cursor: pointer; font-size: 14px;
+}
+.drop-overlay .btn-load:hover { background: #6b4ce0; }
+
+/* ---- Bottom bar ---- */
+.bottom-bar {
+  background: #1a1a1a;
+  border-top: 1px solid #333;
+  padding: 6px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 10;
+}
+.nav-row {
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+}
+.nav-row button {
+  background: #2a2a2a; color: #ddd; border: 1px solid #444;
+  border-radius: 4px; padding: 6px 14px; cursor: pointer; font-size: 13px;
+}
+.nav-row button:hover { background: #7c5cff; color: #fff; }
+.nav-row .page-info { font-size: 13px; color: #aaa; min-width: 100px; text-align: center; }
+
+.thumb-strip {
+  display: flex; gap: 4px; overflow-x: auto; padding: 2px 0;
+  scrollbar-width: thin; scrollbar-color: #444 transparent;
+}
+.thumb-strip::-webkit-scrollbar { height: 6px; }
+.thumb-strip::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+.thumb {
+  width: 48px; height: 64px; flex-shrink: 0;
+  border: 2px solid transparent; border-radius: 4px;
+  overflow: hidden; cursor: pointer; opacity: 0.6;
+  transition: all 0.2s;
+}
+.thumb:hover { opacity: 1; }
+.thumb.active { border-color: #7c5cff; opacity: 1; }
+.thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ---- Page transition ---- */
+canvas.transitioning { transition: opacity 0.15s; opacity: 0.5; }
+
+/* ---- Original panel (left side) ---- */
+.original-panel {
+  position: absolute; left: 10px; top: 10px; bottom: 10px;
+  width: 120px; background: rgba(20,20,20,0.9);
+  border: 1px solid #333; border-radius: 8px;
+  padding: 8px; display: none; flex-direction: column;
+  gap: 6px; z-index: 8; overflow-y: auto;
+  scrollbar-width: thin; scrollbar-color: #444 transparent;
+}
+.original-panel::-webkit-scrollbar { width: 4px; }
+.original-panel::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
+.original-panel.show { display: flex; }
+.original-panel h3 { font-size: 10px; color: #888; text-align: center; margin-bottom: 2px; flex-shrink: 0; }
+.original-thumb {
+  width: 100%; border-radius: 4px; border: 2px solid transparent;
+  cursor: pointer; opacity: 0.6; transition: all 0.2s; flex-shrink: 0;
+}
+.original-thumb:hover { opacity: 1; }
+.original-thumb.active { border-color: #7c5cff; opacity: 1; }
+.original-thumb img { width: 100%; border-radius: 2px; display: block; }
+
+/* ---- Loading indicator ---- */
+.loading {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  font-size: 14px; color: #7c5cff; z-index: 6; display: none;
+}
+.loading.show { display: block; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>📖 3D Comic Reader</h1>
+  <div class="sep"></div>
+  <label>Focus <input type="range" id="focusPlane" min="0" max="100" value="50"></label>
+  <label>Layers
+    <select id="layerCount">
+      <option value="8">8</option>
+      <option value="16" selected>16</option>
+      <option value="32">32</option>
+      <option value="64">64</option>
+    </select>
+  </label>
+  <label>Mode
+    <select id="viewMode">
+      <option value="parallax">Parallax</option>
+      <option value="layers">Layers</option>
+      <option value="depth">Depth</option>
+      <option value="color">Color</option>
+      <option value="sidebyside">Side-by-side</option>
+    </select>
+  </label>
+  <label>Parallax <input type="range" id="depthIntensity" min="0" max="100" value="30"> <span id="depthVal">30</span></label>
+  <label><input type="checkbox" id="autoMove"> Auto-move</label>
+  <div class="sep"></div>
+  <button id="btnLoad">📂 Load Images</button>
+  <button id="btnExport">💾 Export</button>
+</div>
+
+<div class="viewer">
+  <canvas id="canvas"></canvas>
+  <div class="drop-overlay" id="dropOverlay">
+    <div class="icon">📖</div>
+    <p>Drop manga pages here or load a folder</p>
+    <p style="font-size:11px;color:#555">Pairs <code>*_color.png</code> with <code>*_depth.png</code> automatically</p>
+    <button class="btn-load" id="btnLoadBig">Load Images</button>
+  </div>
+  <div class="loading" id="loading">Loading...</div>
+  <div class="original-panel" id="originalPanel">
+    <h3>Originals</h3>
+    <div id="originalList"></div>
+  </div>
+</div>
+
+<div class="bottom-bar" id="bottomBar" style="display:none">
+  <div class="nav-row">
+    <button id="btnPrev">◀ Prev</button>
+    <span class="page-info" id="pageInfo">Page 0 / 0</span>
+    <button id="btnNext">Next ▶</button>
+  </div>
+  <div class="thumb-strip" id="thumbStrip"></div>
+</div>
+
+<input type="file" id="fileInput" multiple accept="image/*" style="display:none">
+
+<script>
+// ============================================================
+// Manga 3D Comic Reader — WebGL Parallax Engine
+// ============================================================
+
+const canvas = document.getElementById('canvas');
+const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+const dropOverlay = document.getElementById('dropOverlay');
+const bottomBar = document.getElementById('bottomBar');
+const thumbStrip = document.getElementById('thumbStrip');
+const pageInfo = document.getElementById('pageInfo');
+const loading = document.getElementById('loading');
+const fileInput = document.getElementById('fileInput');
+
+const depthSlider = document.getElementById('depthIntensity');
+const depthVal = document.getElementById('depthVal');
+const focusSlider = document.getElementById('focusPlane');
+const layerSelect = document.getElementById('layerCount');
+const modeSelect = document.getElementById('viewMode');
+const autoMoveCheck = document.getElementById('autoMove');
+
+let pages = []; // [{name, colorImg, depthImg, colorTex, depthTex}]
+let currentPage = 0;
+let program = null;
+let imageSize = { w: 0, h: 0 };
+let mousePos = { x: 0.5, y: 0.5 };
+let animFrame = null;
+let lastTime = 0;
+
+// ---- Shaders ----
+const vertSrc = `
+  attribute vec2 a_position;
+  varying vec2 v_uv;
+  void main() {
+    v_uv = vec2(a_position.x * 0.5 + 0.5, 0.5 - a_position.y * 0.5);
+    gl_Position = vec4(a_position, 0.0, 1.0);
+  }
+`;
+
+const fragSrc = `
+  precision highp float;
+  varying vec2 v_uv;
+  uniform sampler2D u_color;
+  uniform sampler2D u_depth;
+  uniform vec2 u_mouse;
+  uniform float u_intensity;
+  uniform float u_focus;
+  uniform int u_layers;
+  uniform int u_mode; // 0=parallax,1=layers,2=depth,3=color,4=sbs
+  uniform float u_time;
+  uniform vec2 u_resolution;
+  uniform vec2 u_imageSize;
+  uniform float u_hasDepth;
+
+  vec2 getImageUV(vec2 uv) {
+    float viewAspect = u_resolution.x / u_resolution.y;
+    float imgAspect = u_imageSize.x / u_imageSize.y;
+    vec2 scale = vec2(1.0);
+    if (imgAspect > viewAspect) { scale.y = viewAspect / imgAspect; }
+    else { scale.x = imgAspect / viewAspect; }
+    return (uv - 0.5) / scale + 0.5;
+  }
+
+  bool inBounds(vec2 uv) { return uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0; }
+
+  vec3 sampleParallax(vec2 uv, vec2 offset) {
+    float depth = texture2D(u_depth, uv).r;
+    float displacement = (depth - u_focus) * u_intensity;
+    vec2 displaced = uv + offset * displacement;
+    if (!inBounds(displaced)) return vec3(0.0);
+    return texture2D(u_color, displaced).rgb;
+  }
+
+  void main() {
+    vec2 uv = getImageUV(v_uv);
+    if (!inBounds(uv)) { gl_FragColor = vec4(0.04, 0.04, 0.04, 1.0); return; }
+
+    // Color-only mode or no depth
+    if (u_mode == 3 || u_hasDepth < 0.5) {
+      gl_FragColor = vec4(texture2D(u_color, uv).rgb, 1.0);
+      return;
+    }
+
+    // Depth visualization
+    if (u_mode == 2) {
+      float d = texture2D(u_depth, uv).r;
+      vec3 c = mix(mix(vec3(0.267,0.004,0.329), vec3(0.128,0.567,0.551), d),
+                   mix(vec3(0.128,0.567,0.551), vec3(0.993,0.906,0.144), d), d);
+      gl_FragColor = vec4(c, 1.0);
+      return;
+    }
+
+    vec2 offset = u_mouse * 0.08;
+
+    // Parallax
+    if (u_mode == 0) {
+      gl_FragColor = vec4(sampleParallax(uv, offset), 1.0);
+      return;
+    }
+
+    // Layers visualization
+    if (u_mode == 1) {
+      float depth = texture2D(u_depth, uv).r;
+      float layerF = float(u_layers);
+      float q = floor(depth * layerF) / layerF;
+      float displacement = (q - u_focus) * u_intensity;
+      vec2 displaced = uv + offset * displacement;
+      if (!inBounds(displaced)) { gl_FragColor = vec4(0.0,0.0,0.0,1.0); return; }
+      vec3 col = texture2D(u_color, displaced).rgb;
+      // Subtle edge between layers
+      float edge = fract(depth * layerF);
+      if (edge < 0.05 || edge > 0.95) col *= 0.7;
+      gl_FragColor = vec4(col, 1.0);
+      return;
+    }
+
+    // Side by side
+    if (u_mode == 4) {
+      vec2 leftUV = vec2(uv.x * 2.0, uv.y);
+      vec2 rightUV = vec2(uv.x * 2.0 - 1.0, uv.y);
+      vec2 lo = vec2(-0.02, 0.0) * u_intensity;
+      vec2 ro = vec2(0.02, 0.0) * u_intensity;
+      if (uv.x < 0.5 && inBounds(leftUV)) {
+        gl_FragColor = vec4(sampleParallax(leftUV, lo), 1.0);
+      } else if (uv.x >= 0.5 && inBounds(rightUV)) {
+        gl_FragColor = vec4(sampleParallax(rightUV, ro), 1.0);
+      } else {
+        gl_FragColor = vec4(0.04, 0.04, 0.04, 1.0);
+      }
+      return;
+    }
+
+    gl_FragColor = vec4(texture2D(u_color, uv).rgb, 1.0);
+  }
+`;
+
+function compileShader(src, type) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    console.error('Shader error:', gl.getShaderInfoLog(s));
+    return null;
+  }
+  return s;
+}
+
+function initGL() {
+  const v = compileShader(vertSrc, gl.VERTEX_SHADER);
+  const f = compileShader(fragSrc, gl.FRAGMENT_SHADER);
+  program = gl.createProgram();
+  gl.attachShader(program, v);
+  gl.attachShader(program, f);
+  gl.linkProgram(program);
+  gl.useProgram(program);
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+  const pos = gl.getAttribLocation(program, 'a_position');
+  gl.enableVertexAttribArray(pos);
+  gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
+}
+
+function createTexture(img) {
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  return tex;
+}
+
+function loadImg(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    if (src instanceof Blob) img.src = URL.createObjectURL(src);
+    else img.src = src;
+  });
+}
+
+// Create a 1x1 gray texture for pages without depth
+let placeholderDepthTex = null;
+function getPlaceholderDepth() {
+  if (placeholderDepthTex) return placeholderDepthTex;
+  placeholderDepthTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, placeholderDepthTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([128,128,128,255]));
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  return placeholderDepthTex;
+}
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  gl.viewport(0, 0, canvas.width, canvas.height);
+}
+
+function render(time) {
+  const page = pages[currentPage];
+  if (!page || !page.colorTex) { animFrame = requestAnimationFrame(render); return; }
+
+  const t = time / 1000;
+  if (autoMoveCheck.checked) {
+    mousePos.x = Math.sin(t * 0.7) * 0.3;
+    mousePos.y = Math.cos(t * 0.5) * 0.2;
+  }
+
+  gl.useProgram(program);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, page.colorTex);
+  gl.uniform1i(gl.getUniformLocation(program, 'u_color'), 0);
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, page.depthTex || getPlaceholderDepth());
+  gl.uniform1i(gl.getUniformLocation(program, 'u_depth'), 1);
+
+  gl.uniform2f(gl.getUniformLocation(program, 'u_mouse'), mousePos.x, mousePos.y);
+  gl.uniform1f(gl.getUniformLocation(program, 'u_intensity'), depthSlider.value / 100);
+  gl.uniform1f(gl.getUniformLocation(program, 'u_focus'), focusSlider.value / 100);
+  gl.uniform1i(gl.getUniformLocation(program, 'u_layers'), parseInt(layerSelect.value));
+  gl.uniform1f(gl.getUniformLocation(program, 'u_time'), t);
+  gl.uniform2f(gl.getUniformLocation(program, 'u_resolution'), canvas.width, canvas.height);
+  gl.uniform2f(gl.getUniformLocation(program, 'u_imageSize'), page.w, page.h);
+  gl.uniform1f(gl.getUniformLocation(program, 'u_hasDepth'), page.depthTex ? 1.0 : 0.0);
+
+  const modes = { parallax:0, layers:1, depth:2, color:3, sidebyside:4 };
+  gl.uniform1i(gl.getUniformLocation(program, 'u_mode'), modes[modeSelect.value] || 0);
+
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  animFrame = requestAnimationFrame(render);
+}
+
+function buildOriginals() {
+  const list = document.getElementById('originalList');
+  const panel = document.getElementById('originalPanel');
+  list.innerHTML = '';
+  let hasAny = false;
+  pages.forEach((p, i) => {
+    const src = p.originalSrc || p.colorSrc;
+    const div = document.createElement('div');
+    div.className = 'original-thumb' + (i === 0 ? ' active' : '');
+    div.dataset.idx = i;
+    const img = document.createElement('img');
+    img.src = src;
+    if (p.originalSrc) img.style.filter = 'grayscale(100%)';
+    div.appendChild(img);
+    const label = document.createElement('div');
+    label.style.cssText = 'font-size:9px;color:#666;text-align:center;margin:2px 0 6px;';
+    label.textContent = p.name.length > 15 ? p.name.slice(0, 15) + '…' : p.name;
+    div.onclick = () => showPage(i);
+    list.appendChild(div);
+    list.appendChild(label);
+    hasAny = true;
+  });
+  if (hasAny) panel.classList.add('show');
+}
+
+function showPage(idx) {
+  if (idx < 0 || idx >= pages.length) return;
+  currentPage = idx;
+  const page = pages[idx];
+  imageSize.w = page.w;
+  imageSize.h = page.h;
+  pageInfo.textContent = `Page ${idx + 1} / ${pages.length}`;
+  document.querySelectorAll('.thumb').forEach((t, i) => t.classList.toggle('active', i === idx));
+  const activeThumb = thumbStrip.children[idx];
+  if (activeThumb) activeThumb.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  // Update original panel active state
+  document.querySelectorAll('.original-thumb').forEach(t => t.classList.toggle('active', parseInt(t.dataset.idx) === idx));
+}
+
+function buildThumbs() {
+  thumbStrip.innerHTML = '';
+  pages.forEach((p, i) => {
+    const div = document.createElement('div');
+    div.className = 'thumb' + (i === 0 ? ' active' : '');
+    const img = document.createElement('img');
+    img.src = p.colorSrc;
+    div.appendChild(img);
+    div.onclick = () => showPage(i);
+    thumbStrip.appendChild(div);
+  });
+}
+
+async function loadPages(pageList) {
+  loading.classList.add('show');
+  pages = [];
+  
+  for (const p of pageList) {
+    const colorImg = await loadImg(p.color);
+    let depthImg = null;
+    if (p.depth) {
+      try { depthImg = await loadImg(p.depth); } catch(e) { console.warn('No depth for', p.name); }
+    }
+    const colorTex = createTexture(colorImg);
+    const depthTex = depthImg ? createTexture(depthImg) : null;
+    pages.push({
+      name: p.name,
+      colorSrc: p.color,
+      originalSrc: p.original || null,
+      colorTex, depthTex,
+      w: colorImg.width, h: colorImg.height
+    });
+  }
+
+  if (pages.length === 0) { loading.classList.remove('show'); return; }
+
+  dropOverlay.classList.add('hidden');
+  bottomBar.style.display = '';
+  loading.classList.remove('show');
+  buildThumbs();
+  buildOriginals();
+  showPage(0);
+  resize();
+  if (animFrame) cancelAnimationFrame(animFrame);
+  animFrame = requestAnimationFrame(render);
+}
+
+// ---- File handling ----
+function handleFiles(files) {
+  const sorted = Array.from(files).filter(f => /\.(png|jpg|jpeg|webp)$/i.test(f.name)).sort((a,b) => a.name.localeCompare(b.name));
+  const colorFiles = sorted.filter(f => f.name.includes('_color'));
+  const depthFiles = sorted.filter(f => f.name.includes('_depth'));
+
+  const pageList = [];
+  if (colorFiles.length > 0) {
+    for (const cf of colorFiles) {
+      const base = cf.name.replace(/_color\.\w+$/, '');
+      const df = depthFiles.find(d => d.name.startsWith(base + '_depth'));
+      pageList.push({
+        name: base,
+        color: URL.createObjectURL(cf),
+        depth: df ? URL.createObjectURL(df) : null
+      });
+    }
+  } else {
+    // All images as color-only pages
+    for (const f of sorted) {
+      if (!f.name.includes('_depth')) {
+        pageList.push({ name: f.name.replace(/\.\w+$/,''), color: URL.createObjectURL(f), depth: null });
+      }
+    }
+  }
+  loadPages(pageList);
+}
+
+// ---- Events ----
+document.getElementById('btnLoad').onclick = () => fileInput.click();
+document.getElementById('btnLoadBig').onclick = () => fileInput.click();
+fileInput.onchange = e => handleFiles(e.target.files);
+
+document.body.addEventListener('dragover', e => e.preventDefault());
+document.body.addEventListener('drop', e => { e.preventDefault(); handleFiles(e.dataTransfer.files); });
+
+document.getElementById('btnPrev').onclick = () => showPage(currentPage - 1);
+document.getElementById('btnNext').onclick = () => showPage(currentPage + 1);
+
+depthSlider.oninput = () => depthVal.textContent = depthSlider.value;
+
+canvas.addEventListener('mousemove', e => {
+  if (autoMoveCheck.checked) return;
+  const r = canvas.getBoundingClientRect();
+  mousePos.x = ((e.clientX - r.left) / r.width - 0.5) * 2;
+  mousePos.y = ((e.clientY - r.top) / r.height - 0.5) * 2;
+});
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (autoMoveCheck.checked) return;
+  const r = canvas.getBoundingClientRect();
+  const t = e.touches[0];
+  mousePos.x = ((t.clientX - r.left) / r.width - 0.5) * 2;
+  mousePos.y = ((t.clientY - r.top) / r.height - 0.5) * 2;
+}, { passive: false });
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft') showPage(currentPage - 1);
+  else if (e.key === 'ArrowRight') showPage(currentPage + 1);
+  else if (e.key === ' ') { e.preventDefault(); autoMoveCheck.checked = !autoMoveCheck.checked; }
+  else if (e.key === 'f' || e.key === 'F') {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+    else document.exitFullscreen();
+  }
+});
+
+document.getElementById('btnExport').onclick = () => {
+  if (!pages.length) return;
+  canvas.toBlob(blob => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `manga_3d_page${currentPage+1}.png`;
+    a.click();
+  });
+};
+
+window.addEventListener('resize', resize);
+
+// ---- Init ----
+initGL();
+resize();
+
+// Auto-load from URL params
+const params = new URLSearchParams(location.search);
+const folderParam = params.get('folder');
+const foldersParam = params.get('folders');
+if (folderParam || foldersParam) {
+  const folderList = foldersParam ? foldersParam.split(',') : [folderParam];
+  fetch('/api/load-folder', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folders: folderList })
+  }).then(r => r.json()).then(data => {
+    if (data.pages && data.pages.length) loadPages(data.pages);
+  }).catch(e => console.error('Failed to load folder:', e));
+}
+</script>
+</body>
+</html>
