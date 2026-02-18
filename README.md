@@ -1,227 +1,164 @@
-# 🎨 Manga 3D Color
+# 🎨 Manga 3D Color Pipeline
 
-Transform black & white manga pages into **colorized 3D parallax** experiences.
+Transform B&W manga/comics into **colorized 3D parallax experiences** with one command.
 
-![Pipeline: B&W → Color → Depth](docs/pipeline.png)
+AI-powered colorization + depth map generation + interactive WebGL reader + video export.
 
-## What it does
+## What It Does
 
-1. **Colorize** — AI-powered colorization of B&W manga pages using [manga-colorization-v2](https://github.com/qweasdd/manga-colorization-v2)
-2. **Depth Map** — Generate depth maps using [Apple Depth Pro](https://github.com/apple/ml-depth-pro)
-3. **3D Parallax** — WebGL reader with real-time parallax, multiple view modes, and page navigation
-4. **Web Transform** — Upload B&W manga directly in the reader UI, transform and view in one workflow
-
-## Examples
-
-<table>
-<tr>
-<td align="center"><b>One Piece (Luffy)</b></td>
-<td align="center"><b>Vagabond</b></td>
-</tr>
-<tr>
-<td><img src="docs/luffy_comparison.png" width="400"></td>
-<td><img src="docs/vagabond_comparison.png" width="400"></td>
-</tr>
-<tr>
-<td align="center"><b>Colorized</b></td>
-<td align="center"><b>Depth Map</b></td>
-</tr>
-<tr>
-<td><img src="docs/luffy_color.png" width="400"></td>
-<td><img src="docs/luffy_depth.png" width="400"></td>
-</tr>
-<tr>
-<td><img src="docs/vagabond_color.png" width="400"></td>
-<td><img src="docs/vagabond_depth.png" width="400"></td>
-</tr>
-</table>
+1. **Takes** a black & white manga page, folder of pages, or full PDF
+2. **Colorizes** it using AI (manga-colorization-v2)
+3. **Generates depth maps** using Apple Depth Pro
+4. **Produces** colorized PDFs, interactive 3D readers, comparison PDFs, and parallax videos
 
 ## Quick Start
 
-### Prerequisites
-
-- Python 3.9+ with conda/mamba
-- Node.js 18+
-- **macOS** (Apple Silicon — MPS), **Linux/Windows** (NVIDIA GPU — CUDA), or CPU fallback
-
-### 1. Clone & setup
-
 ```bash
-git clone https://github.com/jrubiosainz/manga-3d-color.git
-cd manga-3d-color
-```
-
-### 2. Install Python dependencies
-
-**macOS:**
-```bash
-./setup.sh
-```
-
-**Windows:**
-```batch
-setup.bat
-```
-
-**Manual setup:**
-```bash
-# Create conda environment
-conda create -n manga3d python=3.11 -y
 conda activate manga3d
 
-# Install PyTorch
-# macOS (MPS):
-pip install torch torchvision
-# Windows/Linux (CUDA):
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-# CPU only:
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# Full pipeline — PDF in, everything out
+python manga_cli.py manga.pdf
 
-# Install dependencies
-pip install -r requirements.txt
+# Fast preview
+python manga_cli.py manga.pdf --preset draft
 
-# Clone and install colorizer
-git clone https://github.com/qweasdd/manga-colorization-v2.git
-cd manga-colorization-v2
-# Download model weights (see their README)
-cd ..
-
-# Clone and install depth estimation
-git clone https://github.com/apple/ml-depth-pro.git
-cd ml-depth-pro
-pip install -e .
-cd ..
-```
-
-### 3. Process manga pages
-
-```bash
 # Single image
-python pipeline/manga_pipeline.py image.jpg
+python manga_cli.py page.jpg
 
 # Folder of images
-python pipeline/manga_pipeline.py ./my-manga-pages/
+python manga_cli.py pages/
 
-# PDF
-python pipeline/manga_pipeline.py manga.pdf
+# Only colorize (skip depth/3D)
+python manga_cli.py manga.pdf --steps color
 
-# Only colorize (skip depth)
-python pipeline/manga_pipeline.py image.jpg --steps color
+# Add side-by-side comparison PDF (B&W vs Color)
+python manga_cli.py manga.pdf --compare
 
-# Force specific device
-python pipeline/manga_pipeline.py image.jpg --device cuda
-python pipeline/manga_pipeline.py image.jpg --device cpu
+# Process specific pages
+python manga_cli.py manga.pdf --pages 1-5
+
+# Generate parallax animation video
+python manga_cli.py page.jpg --video
+python manga_cli.py manga.pdf --video --video-motion figure8
+
+# Generate shareable GIF
+python manga_cli.py page.jpg --video-gif --video-duration 3
 ```
 
-Output goes to `output/<basename>/` with:
-- `*_color.png` — Colorized version
-- `*_depth.png` — Depth map
-- `*_3d.png` — 3D composite
-- `*_3d_comparison.png` — Side-by-side comparison
+## Presets
 
-### 4. Launch the 3D Reader
+| Preset | Color Size | DPI | Speed | Quality |
+|--------|-----------|-----|-------|---------|
+| `draft` | 384px | 150 | ~5s/page | Preview |
+| `normal` | 576px | 200 | ~20s/page | Balanced (default) |
+| `high` | 768px | 300 | ~40s/page | Maximum |
+
+## Outputs
+
+```
+output/<name>/
+├── <name>_color.pdf          # Colorized PDF
+├── <name>_compare.pdf        # Side-by-side B&W vs Color (--compare)
+├── <name>_reader.html        # Interactive 3D Reader (WebGL)
+├── <name>_parallax.mp4       # Parallax animation video (--video)
+├── <name>_parallax.gif       # Parallax animation GIF (--video-gif)
+├── page_001_color.png        # Per-page colorized images
+├── page_001_depth.png        # Per-page depth maps
+├── thumbnails/               # Optimized thumbs for reader
+└── _pages/                   # Extracted PDF pages (if PDF input)
+```
+
+## Parallax Video Export
+
+Generate smooth parallax animation videos from colorized manga + depth maps. Perfect for sharing on social media.
 
 ```bash
-cd reader
-npm install
-npm start
+# Standalone usage
+python export_video.py color.png depth.png -o output.mp4
+
+# Different motion patterns
+python export_video.py color.png depth.png --motion figure8
+python export_video.py color.png depth.png --motion horizontal
+python export_video.py color.png depth.png --motion breathe
+
+# GIF output (smaller, loops automatically)
+python export_video.py color.png depth.png --gif -o preview.gif
+
+# Process all pairs in a directory
+python export_video.py output/manga_name/ --all
 ```
 
-Open `http://localhost:3002` — you can:
-
-- **Load existing results** via drag & drop or URL params: `?folder=luffy`
-- **Transform new manga** — click 🎨 Transform, upload B&W images, and process them directly in the browser with real-time progress
+**Motion patterns:**
+- `circle` — Smooth circular camera orbit (default)
+- `figure8` — Figure-8 pattern, more dynamic
+- `horizontal` — Side-to-side only
+- `breathe` — Gentle pulsing zoom effect
 
 ## 3D Reader Features
 
-- **WebGL parallax engine** — Real-time depth-based parallax effect
-- **5 view modes** — Parallax, Layers, Depth map, Color only, Side-by-side
-- **Integrated transform** — Upload B&W manga → colorize + depth → auto-load in 3D viewer
-- **Real-time progress** — Watch the pipeline process your pages with live log output
-- **Mouse/touch/gyroscope tracking** — Shift perspective naturally
-- **Auto-move mode** — Gentle automatic parallax animation
-- **Multi-page navigation** — Thumbnail strip + keyboard shortcuts
-- **Adjustable parameters** — Focus plane, layer count, parallax intensity
-- **Export** — Save current 3D view as PNG
-- **Drag & drop** — Load local images without server
+- **WebGL parallax** with mouse, touch, and gyroscope control
+- **5 view modes**: Parallax, Anaglyph 3D, Wiggle 3D, Depth Map, Flat
+- **Multi-page navigation** with thumbnails, arrows, keyboard, swipe
+- **Reading direction**: RTL (manga) and LTR (western comics)
+- **Self-contained**: single HTML file, share anywhere
+- **Mobile-ready**: touch, swipe, gyroscope support
 
-**Keyboard shortcuts:** `←` `→` navigate pages · `Space` toggle auto-move · `F` fullscreen
+## Web UI
 
-## Device Support
+A browser-based interface for the full pipeline:
 
-The pipeline auto-detects the best available compute device:
+```bash
+python web_ui.py
+# Open http://localhost:5050
+```
 
-| Platform | Device | Flag | Performance |
-|----------|--------|------|-------------|
-| macOS (Apple Silicon) | MPS | `--device mps` | ~17s/page |
-| Windows/Linux (NVIDIA) | CUDA | `--device cuda` | ~10-20s/page |
-| Any | CPU | `--device cpu` | ~60-120s/page |
-
-Auto-detection order: **MPS → CUDA → CPU**
+Features: drag & drop upload, preset selection, real-time progress, output downloads, past runs gallery.
 
 ## Architecture
 
 ```
-manga-3d-color/
-├── pipeline/
-│   └── manga_pipeline.py    # Core processing pipeline
-├── reader/
-│   ├── server.js            # Express server + transform API
-│   └── public/
-│       └── index.html       # WebGL 3D reader + transform UI
-├── output/                   # Generated output (git-ignored)
-├── setup.sh                  # macOS/Linux setup
-├── setup.bat                 # Windows setup
-├── requirements.txt
-└── README.md
+B&W Input → [Extract PDF pages] → [AI Colorization] → [Depth Pro] → [Outputs]
+                                        ↓                   ↓
+                                   Color pages          Depth maps
+                                        ↓                   ↓
+                                   Color PDF          3D Reader HTML
+                                   Compare PDF        Parallax Video
 ```
 
-### Pipeline Flow
+**Batched GPU pipeline** (v2): processes all pages through colorization first, then all through depth, minimizing model switching overhead. CPU-bound work (thumbnails, PDFs) runs in parallel via thread pool.
 
+## Use Cases
+
+- **Manga collectors**: Colorize your favorite B&W manga volumes automatically
+- **Comic archivists**: Add depth and color to classic black & white comics
+- **Content creators**: Generate eye-catching 3D parallax videos for social media
+- **Artists**: Visualize depth in your illustrations
+- **Educators**: Create engaging visual materials from public domain comics
+
+## Requirements
+
+- Python 3.10+ with conda
+- Apple Silicon Mac (MPS acceleration) or CUDA GPU
+- ffmpeg (for video export)
+- ~4GB disk for models (colorization + Depth Pro)
+
+## Installation
+
+```bash
+# Create conda environment
+conda create -n manga3d python=3.10
+conda activate manga3d
+
+# Install dependencies
+pip install torch torchvision pillow numpy matplotlib flask PyMuPDF
+
+# Clone with submodules
+git clone --recursive https://github.com/jrubiosainz/manga-3d-color.git
+cd manga-3d-color
+
+# Download Depth Pro model
+# Place depth_pro.pt in checkpoints/
 ```
-B&W Manga Page
-    │
-    ├──► manga-colorization-v2 ──► Color Image
-    │
-    └──► Apple Depth Pro ──► Depth Map
-                                  │
-                                  ▼
-                        WebGL Parallax Reader
-                        (color + depth = 3D!)
-```
-
-### Web Transform Flow
-
-```
-Browser UI ──upload──► Express Server ──spawn──► Python Pipeline
-                                                      │
-     Auto-load in 3D viewer ◄──poll status──── JSON progress
-```
-
-## API Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/upload` | Upload B&W images (multipart) |
-| `POST` | `/api/transform` | Start pipeline `{jobId, steps, device}` |
-| `GET` | `/api/transform/:id` | Poll job status + progress |
-| `GET` | `/api/outputs` | List available output folders |
-| `POST` | `/api/load-folder` | Load processed pages for viewer |
-
-## Performance
-
-On Apple Silicon (MPS):
-
-| Step | Time/Page | Memory |
-|------|-----------|--------|
-| Colorization | ~3s | ~1GB |
-| Depth estimation | ~14s | ~2GB |
-| **Total** | **~17s** | **~3GB** |
-
-## Credits
-
-- [manga-colorization-v2](https://github.com/qweasdd/manga-colorization-v2) — AI manga colorization
-- [Apple Depth Pro](https://github.com/apple/ml-depth-pro) — Monocular depth estimation
 
 ## License
 
