@@ -130,6 +130,65 @@ canvas.transitioning { transition: opacity 0.15s; opacity: 0.5; }
   font-size: 14px; color: #7c5cff; z-index: 6; display: none;
 }
 .loading.show { display: block; }
+
+/* ---- Transform Panel ---- */
+.transform-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+  display: none; align-items: center; justify-content: center; z-index: 100;
+}
+.transform-overlay.show { display: flex; }
+.transform-panel {
+  background: #1e1e1e; border: 1px solid #444; border-radius: 12px;
+  padding: 24px; width: 500px; max-width: 90vw; max-height: 85vh;
+  overflow-y: auto; color: #ddd;
+}
+.transform-panel h2 { font-size: 18px; margin-bottom: 16px; color: #fff; }
+.transform-panel .upload-zone {
+  border: 2px dashed #555; border-radius: 8px; padding: 32px;
+  text-align: center; cursor: pointer; transition: border-color 0.2s;
+  margin-bottom: 16px;
+}
+.transform-panel .upload-zone:hover, .transform-panel .upload-zone.dragover {
+  border-color: #7c5cff;
+}
+.transform-panel .upload-zone p { color: #888; font-size: 13px; margin: 4px 0; }
+.transform-panel .file-list {
+  max-height: 120px; overflow-y: auto; margin-bottom: 16px;
+  font-size: 12px; color: #aaa;
+}
+.transform-panel .file-list div { padding: 3px 0; border-bottom: 1px solid #333; }
+.transform-panel .options { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.transform-panel .options label { font-size: 12px; color: #aaa; display: flex; align-items: center; gap: 6px; }
+.transform-panel .options select {
+  font-size: 12px; padding: 4px 8px; background: #2a2a2a; color: #ddd;
+  border: 1px solid #444; border-radius: 4px;
+}
+.transform-panel .btn-row { display: flex; gap: 10px; justify-content: flex-end; }
+.transform-panel button {
+  padding: 8px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;
+}
+.transform-panel .btn-start { background: #7c5cff; color: #fff; }
+.transform-panel .btn-start:hover { background: #6b4ce0; }
+.transform-panel .btn-start:disabled { background: #444; cursor: not-allowed; }
+.transform-panel .btn-cancel { background: #333; color: #aaa; }
+.transform-panel .btn-cancel:hover { background: #444; }
+.transform-progress {
+  margin-top: 16px; display: none;
+}
+.transform-progress.show { display: block; }
+.transform-progress .bar-track {
+  height: 6px; background: #333; border-radius: 3px; overflow: hidden; margin-bottom: 8px;
+}
+.transform-progress .bar-fill {
+  height: 100%; background: #7c5cff; border-radius: 3px; width: 0%;
+  transition: width 0.3s;
+}
+.transform-progress .log {
+  background: #111; border: 1px solid #333; border-radius: 6px;
+  padding: 8px; font-family: monospace; font-size: 11px; color: #888;
+  max-height: 150px; overflow-y: auto; white-space: pre-wrap;
+}
+
 </style>
 </head>
 <body>
@@ -159,6 +218,7 @@ canvas.transitioning { transition: opacity 0.15s; opacity: 0.5; }
   <label><input type="checkbox" id="autoMove"> Auto-move</label>
   <div class="sep"></div>
   <button id="btnLoad">📂 Load Images</button>
+  <button id="btnTransform">🎨 Transform</button>
   <button id="btnExport">💾 Export</button>
 </div>
 
@@ -186,6 +246,40 @@ canvas.transitioning { transition: opacity 0.15s; opacity: 0.5; }
   <div class="thumb-strip" id="thumbStrip"></div>
 </div>
 
+<div class="transform-overlay" id="transformOverlay">
+  <div class="transform-panel">
+    <h2>🎨 Transform B&W Manga</h2>
+    <div class="upload-zone" id="transformUploadZone">
+      <div style="font-size:36px;opacity:0.4">📤</div>
+      <p>Drop B&W manga images here</p>
+      <p style="font-size:11px;color:#555">PNG, JPG, or PDF — up to 50 files</p>
+    </div>
+    <div class="file-list" id="transformFileList"></div>
+    <div class="options">
+      <label>Steps <select id="transformSteps">
+        <option value="all">Full (Color + Depth + 3D)</option>
+        <option value="color">Color only</option>
+        <option value="depth">Depth only</option>
+      </select></label>
+      <label>Device <select id="transformDevice">
+        <option value="auto">Auto-detect</option>
+        <option value="mps">MPS (Apple)</option>
+        <option value="cuda">CUDA (NVIDIA)</option>
+        <option value="cpu">CPU</option>
+      </select></label>
+    </div>
+    <div class="transform-progress" id="transformProgress">
+      <div class="bar-track"><div class="bar-fill" id="transformBar"></div></div>
+      <div class="log" id="transformLog"></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn-cancel" id="btnTransformCancel">Cancel</button>
+      <button class="btn-start" id="btnTransformStart" disabled>Start Transform</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="transformFileInput" multiple accept="image/*,.pdf" style="display:none">
 <input type="file" id="fileInput" multiple accept="image/*" style="display:none">
 
 <script>
@@ -596,6 +690,139 @@ window.addEventListener('resize', resize);
 // ---- Init ----
 initGL();
 resize();
+
+// ============================================================
+// Transform Panel Logic
+// ============================================================
+const transformOverlay = document.getElementById('transformOverlay');
+const transformUploadZone = document.getElementById('transformUploadZone');
+const transformFileList = document.getElementById('transformFileList');
+const transformFileInput = document.getElementById('transformFileInput');
+const transformProgress = document.getElementById('transformProgress');
+const transformBar = document.getElementById('transformBar');
+const transformLog = document.getElementById('transformLog');
+const btnTransformStart = document.getElementById('btnTransformStart');
+const btnTransformCancel = document.getElementById('btnTransformCancel');
+
+let transformFiles = [];
+let transformJobId = null;
+
+document.getElementById('btnTransform').onclick = () => {
+  transformOverlay.classList.add('show');
+  transformFiles = [];
+  transformFileList.innerHTML = '';
+  transformProgress.classList.remove('show');
+  transformLog.textContent = '';
+  transformBar.style.width = '0%';
+  btnTransformStart.disabled = true;
+  btnTransformStart.textContent = 'Start Transform';
+};
+
+btnTransformCancel.onclick = () => transformOverlay.classList.remove('show');
+transformOverlay.onclick = (e) => { if (e.target === transformOverlay) transformOverlay.classList.remove('show'); };
+
+transformUploadZone.onclick = () => transformFileInput.click();
+transformUploadZone.addEventListener('dragover', (e) => { e.preventDefault(); transformUploadZone.classList.add('dragover'); });
+transformUploadZone.addEventListener('dragleave', () => transformUploadZone.classList.remove('dragover'));
+transformUploadZone.addEventListener('drop', (e) => {
+  e.preventDefault(); transformUploadZone.classList.remove('dragover');
+  addTransformFiles(e.dataTransfer.files);
+});
+transformFileInput.onchange = (e) => addTransformFiles(e.target.files);
+
+function addTransformFiles(files) {
+  transformFiles = Array.from(files).filter(f => /\.(png|jpg|jpeg|webp|bmp|pdf)$/i.test(f.name));
+  transformFileList.innerHTML = transformFiles.map(f =>
+    `<div>📄 ${f.name} (${(f.size/1024).toFixed(0)}KB)</div>`
+  ).join('');
+  btnTransformStart.disabled = transformFiles.length === 0;
+}
+
+btnTransformStart.onclick = async () => {
+  if (!transformFiles.length) return;
+  btnTransformStart.disabled = true;
+  btnTransformStart.textContent = 'Uploading...';
+  transformProgress.classList.add('show');
+  transformLog.textContent = 'Uploading files...\n';
+
+  // 1. Upload files
+  const formData = new FormData();
+  for (const f of transformFiles) formData.append('files', f);
+  
+  try {
+    const upRes = await fetch('/api/upload', { method: 'POST', body: formData });
+    const upData = await upRes.json();
+    if (upData.error) throw new Error(upData.error);
+    transformJobId = upData.jobId;
+    transformLog.textContent += `Uploaded ${upData.files.length} files. Starting pipeline...\n`;
+
+    // 2. Start transform
+    const steps = document.getElementById('transformSteps').value;
+    const device = document.getElementById('transformDevice').value;
+    const trRes = await fetch('/api/transform', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId: transformJobId, steps, device })
+    });
+    const trData = await trRes.json();
+    if (trData.error) throw new Error(trData.error);
+
+    btnTransformStart.textContent = 'Processing...';
+    pollTransform(transformJobId);
+  } catch (err) {
+    transformLog.textContent += `❌ Error: ${err.message}\n`;
+    btnTransformStart.textContent = 'Start Transform';
+    btnTransformStart.disabled = false;
+  }
+};
+
+async function pollTransform(jobId) {
+  let lastIdx = 0;
+  const poll = async () => {
+    try {
+      const res = await fetch(`/api/transform/${jobId}`);
+      const data = await res.json();
+      
+      // Append new progress messages
+      for (let i = lastIdx; i < data.progress.length; i++) {
+        const p = data.progress[i];
+        transformLog.textContent += (p.msg || `[${p.phase}] ${p.current}/${p.total}`) + '\n';
+      }
+      lastIdx = data.progress.length;
+      transformLog.scrollTop = transformLog.scrollHeight;
+
+      // Estimate progress bar
+      const colorMsgs = data.progress.filter(p => p.phase === 'log' && p.msg && p.msg.includes('Coloriz'));
+      const depthMsgs = data.progress.filter(p => p.phase === 'log' && p.msg && p.msg.includes('depth'));
+      const pct = Math.min(95, (colorMsgs.length + depthMsgs.length) * 15);
+      transformBar.style.width = (data.status === 'done' ? 100 : pct) + '%';
+
+      if (data.status === 'done') {
+        transformBar.style.width = '100%';
+        transformLog.textContent += `\n✅ Done! (${(data.elapsed/1000).toFixed(1)}s)\n`;
+        btnTransformStart.textContent = 'Done!';
+        // Load results into viewer
+        if (data.pages && data.pages.length) {
+          setTimeout(() => {
+            transformOverlay.classList.remove('show');
+            loadPages(data.pages);
+          }, 1000);
+        }
+        return;
+      }
+      if (data.status === 'error') {
+        transformLog.textContent += `\n❌ ${data.error}\n`;
+        btnTransformStart.textContent = 'Start Transform';
+        btnTransformStart.disabled = false;
+        return;
+      }
+      setTimeout(poll, 1500);
+    } catch {
+      setTimeout(poll, 3000);
+    }
+  };
+  poll();
+}
 
 // Auto-load from URL params
 const params = new URLSearchParams(location.search);

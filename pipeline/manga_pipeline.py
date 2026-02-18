@@ -25,6 +25,7 @@ import os
 import sys
 import argparse
 import time
+import json
 import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
@@ -212,6 +213,10 @@ def main():
     parser.add_argument('--no-depth', action='store_true', help='Skip depth generation')
     parser.add_argument('--viewer', action='store_true', default=True, help='Generate parallax viewer HTML (default: on)')
     parser.add_argument('--no-viewer', action='store_true', help='Skip viewer generation')
+    parser.add_argument('--device', choices=['auto', 'mps', 'cuda', 'cpu'], default='auto',
+                        help='Compute device (default: auto-detect MPS→CUDA→CPU)')
+    parser.add_argument('--json-progress', action='store_true',
+                        help='Output JSON progress lines for integration with web server')
     args = parser.parse_args()
     
     input_path = args.input
@@ -230,10 +235,25 @@ def main():
     print(f"   Steps: {args.steps}")
     print()
     
-    # Initialize colorizer
+    def progress(phase, current, total, msg=''):
+        if args.json_progress:
+            print(json.dumps({'phase': phase, 'current': current, 'total': total, 'msg': msg}), flush=True)
+        else:
+            print(msg if msg else f"  [{phase}] {current}/{total}")
+
+    # Initialize device: MPS → CUDA → CPU
     import torch
-    device = 'mps' if torch.backends.mps.is_available() else 'cpu'
+    if args.device == 'auto':
+        if torch.backends.mps.is_available():
+            device = 'mps'
+        elif torch.cuda.is_available():
+            device = 'cuda'
+        else:
+            device = 'cpu'
+    else:
+        device = args.device
     print(f"🔧 Device: {device}")
+    progress('init', 0, 1, f'Using device: {device}')
     
     colorizer = None
     if args.steps in ('all', 'color'):
