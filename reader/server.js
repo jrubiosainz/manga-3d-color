@@ -97,7 +97,7 @@ app.post('/api/transform', (req, res) => {
   
   const proc = spawn(pythonBin, args, {
     cwd: ROOT_DIR,
-    env: { ...process.env, PYTHONUNBUFFERED: '1' }
+    env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8' }
   });
   
   let stdoutBuf = '';

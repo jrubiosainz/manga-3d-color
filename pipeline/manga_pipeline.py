@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+import sys, io
+# Fix Windows UnicodeEncodeError with emoji in print() — cp1252 can't handle them
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ('utf-8', 'utf8'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 """
 Manga 3D Color Pipeline
 ========================
